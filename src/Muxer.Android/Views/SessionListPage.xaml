@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Muxer.Android.ViewModels"
+             x:Class="Muxer.Android.Views.SessionListPage"
+             Title="Muxer"
+             x:DataType="vm:SessionListViewModel">
+
+    <Grid RowDefinitions="Auto,Auto,*" Padding="16" RowSpacing="12">
+
+        <!-- Status bar -->
+        <HorizontalStackLayout Spacing="8">
+            <BoxView WidthRequest="12" HeightRequest="12" CornerRadius="6"
+                     Color="{Binding IsConnected, Converter={StaticResource BoolToColorConverter}}" />
+            <Label Text="{Binding StatusText}" FontSize="13" TextColor="Gray" />
+            <Button Text="Refresh" Command="{Binding RefreshCommand}"
+                    FontSize="12" Padding="8,2" HeightRequest="30" />
+        </HorizontalStackLayout>
+
+        <!-- New session -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <Entry Placeholder="Project name or pick below..."
+                   Text="{Binding NewProjectName}" />
+            <Button Grid.Column="1" Text="Start" Command="{Binding CreateSessionCommand}"
+                    BackgroundColor="#4CAF50" TextColor="White" />
+        </Grid>
+
+        <!-- Session list + project list -->
+        <ScrollView Grid.Row="2">
+            <VerticalStackLayout Spacing="12">
+
+                <!-- Active sessions -->
+                <Label Text="Active Sessions" FontSize="18" FontAttributes="Bold"
+                       IsVisible="{Binding Sessions.Count, Converter={StaticResource IntToBoolConverter}}" />
+
+                <CollectionView ItemsSource="{Binding Sessions}">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SessionViewModel">
+                            <Border Stroke="#333" StrokeThickness="1" Padding="12"
+                                    StrokeShape="RoundRectangle 8" Margin="0,0,0,8">
+                                <VerticalStackLayout Spacing="8">
+
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <BoxView WidthRequest="12" HeightRequest="12" CornerRadius="6"
+                                                 Color="{Binding NeedsApproval, Converter={StaticResource ApprovalColorConverter}}" />
+                                        <Label Grid.Column="1" Text="{Binding ProjectName}"
+                                               FontSize="16" FontAttributes="Bold" Margin="8,0,0,0" />
+                                        <Label Grid.Column="2" Text="{Binding StatusText}"
+                                               FontSize="12" TextColor="Gray" VerticalOptions="Center" />
+                                    </Grid>
+
+                                    <!-- Approval section -->
+                                    <Frame BackgroundColor="#FFF3E0" Padding="10" CornerRadius="6"
+                                           IsVisible="{Binding NeedsApproval}" BorderColor="#FF9800">
+                                        <VerticalStackLayout Spacing="8">
+                                            <Label Text="{Binding ApprovalContext}" FontSize="12"
+                                                   FontFamily="Consolas" MaxLines="6" />
+                                            <HorizontalStackLayout Spacing="8">
+                                                <Button Text="Allow Once"
+                                                        Command="{Binding ApproveCommand}"
+                                                        CommandParameter="1"
+                                                        BackgroundColor="#4CAF50" TextColor="White"
+                                                        FontSize="12" Padding="12,6" />
+                                                <Button Text="Allow Always"
+                                                        Command="{Binding ApproveCommand}"
+                                                        CommandParameter="2"
+                                                        BackgroundColor="#2196F3" TextColor="White"
+                                                        FontSize="12" Padding="12,6" />
+                                                <Button Text="Deny"
+                                                        Command="{Binding ApproveCommand}"
+                                                        CommandParameter="3"
+                                                        BackgroundColor="#F44336" TextColor="White"
+                                                        FontSize="12" Padding="12,6" />
+                                            </HorizontalStackLayout>
+                                        </VerticalStackLayout>
+                                    </Frame>
+
+                                    <!-- Actions -->
+                                    <HorizontalStackLayout Spacing="8">
+                                        <Button Text="Connect"
+                                                Command="{Binding ConnectCommand}"
+                                                FontSize="12" Padding="12,6" />
+                                        <Button Text="Kill"
+                                                Command="{Binding DeleteCommand}"
+                                                BackgroundColor="#880000" TextColor="White"
+                                                FontSize="12" Padding="12,6" />
+                                    </HorizontalStackLayout>
+
+                                </VerticalStackLayout>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+                <!-- Available projects -->
+                <Label Text="Projects" FontSize="18" FontAttributes="Bold" Margin="0,8,0,0" />
+                <CollectionView ItemsSource="{Binding Projects}">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <Border Stroke="#555" StrokeThickness="1" Padding="12"
+                                    StrokeShape="RoundRectangle 6" Margin="0,0,0,4">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <Label Text="{Binding .}" FontSize="14" VerticalOptions="Center" />
+                                    <Button Grid.Column="1" Text="Launch"
+                                            Command="{Binding Source={RelativeSource AncestorType={x:Type vm:SessionListViewModel}}, Path=CreateSessionFromProjectCommand}"
+                                            CommandParameter="{Binding .}"
+                                            FontSize="12" Padding="10,4" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+            </VerticalStackLayout>
+        </ScrollView>
+
+    </Grid>
+
+</ContentPage>

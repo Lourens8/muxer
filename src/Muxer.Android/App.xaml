@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Application xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:Muxer.Android"
+             x:Class="Muxer.Android.App">
+    <Application.Resources>
+        <ResourceDictionary>
+            <local:BoolToColorConverter x:Key="BoolToColorConverter" />
+            <local:ApprovalColorConverter x:Key="ApprovalColorConverter" />
+            <local:IntToBoolConverter x:Key="IntToBoolConverter" />
+
+            <Style TargetType="Page" ApplyToDerivedTypes="True">
+                <Setter Property="BackgroundColor" Value="#1a1a2e" />
+            </Style>
+            <Style TargetType="Label">
+                <Setter Property="TextColor" Value="#e0e0e0" />
+            </Style>
+            <Style TargetType="Entry">
+                <Setter Property="TextColor" Value="#e0e0e0" />
+                <Setter Property="PlaceholderColor" Value="#888" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

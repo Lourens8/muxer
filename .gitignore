@@ -1,0 +1,10 @@
+bin/
+obj/
+publish/
+*.user
+*.suo
+.vs/
+*.apk
+
+# SSH private key
+scripts/muxer-ssh-key
