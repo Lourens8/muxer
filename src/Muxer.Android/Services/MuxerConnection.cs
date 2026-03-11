@@ -60,9 +60,9 @@ public class MuxerConnection : IAsyncDisposable
         return await resp.Content.ReadFromJsonAsync<SessionDto>();
     }
 
-    public async Task ApproveAsync(string sessionId, int option)
+    public async Task ApproveAsync(string sessionId, string behavior)
     {
-        await _http.PostAsJsonAsync($"/api/sessions/{sessionId}/approve", new { Option = option });
+        await _http.PostAsJsonAsync($"/api/sessions/{sessionId}/approve", new { Behavior = behavior });
     }
 
     public async Task DeleteSessionAsync(string sessionId)

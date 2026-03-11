@@ -1,4 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
+using Android.Content;
+using Android.OS;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Muxer.Android.Services;
@@ -24,9 +27,13 @@ public partial class SessionListViewModel : ObservableObject
     [ObservableProperty]
     private string _newProjectName = "";
 
+    [ObservableProperty]
+    private bool _isPushEnabled;
+
     public SessionListViewModel(MuxerConnection connection)
     {
         _connection = connection;
+        _isPushEnabled = MuxerForegroundService.IsRunning;
 
         _connection.OnConnectionChanged += connected =>
             MainThread.BeginInvokeOnMainThread(() =>
@@ -42,8 +49,13 @@ public partial class SessionListViewModel : ObservableObject
                 if (session != null)
                 {
                     session.Status = SessionStatus.WaitingForApproval;
-                    session.ApprovalContext = req.Context;
-                    session.ApprovalOptions = req.Options;
+                    session.PendingToolName = req.ToolName;
+                    session.PendingToolInput = req.ToolInput;
+
+                    if (session.AutoApprove)
+                    {
+                        _ = session.ApproveCommand.ExecuteAsync("allow");
+                    }
                 }
             });
 
@@ -54,8 +66,8 @@ public partial class SessionListViewModel : ObservableObject
                 if (session != null)
                 {
                     session.Status = SessionStatus.Running;
-                    session.ApprovalContext = null;
-                    session.ApprovalOptions = null;
+                    session.PendingToolName = null;
+                    session.PendingToolInput = null;
                 }
             });
 
@@ -72,6 +84,27 @@ public partial class SessionListViewModel : ObservableObject
                 var s = Sessions.FirstOrDefault(s => s.Id == id);
                 if (s != null) Sessions.Remove(s);
             });
+    }
+
+    [RelayCommand]
+    private void TogglePush()
+    {
+        var context = global::Android.App.Application.Context;
+        var serviceIntent = new Intent(context, typeof(MuxerForegroundService));
+
+        if (IsPushEnabled)
+        {
+            context.StopService(serviceIntent);
+            IsPushEnabled = false;
+        }
+        else
+        {
+            if (Build.VERSION.SdkInt >= BuildVersionCodes.O)
+                context.StartForegroundService(serviceIntent);
+            else
+                context.StartService(serviceIntent);
+            IsPushEnabled = true;
+        }
     }
 
     [RelayCommand]
@@ -152,10 +185,15 @@ public partial class SessionViewModel : ObservableObject
     private SessionStatus _status;
 
     [ObservableProperty]
-    private string? _approvalContext;
+    [NotifyPropertyChangedFor(nameof(FormattedToolInput))]
+    private string? _pendingToolName;
 
     [ObservableProperty]
-    private string[]? _approvalOptions;
+    [NotifyPropertyChangedFor(nameof(FormattedToolInput))]
+    private string? _pendingToolInput;
+
+    [ObservableProperty]
+    private bool _autoApprove;
 
     public bool NeedsApproval => Status == SessionStatus.WaitingForApproval;
 
@@ -167,14 +205,16 @@ public partial class SessionViewModel : ObservableObject
         _ => "Unknown"
     };
 
+    public string? FormattedToolInput => FormatToolInput(PendingToolInput);
+
     public SessionViewModel(SessionDto dto, MuxerConnection connection)
     {
         _connection = connection;
         Id = dto.Id;
         ProjectName = dto.ProjectName;
         Status = dto.Status;
-        ApprovalContext = dto.ApprovalContext;
-        ApprovalOptions = dto.ApprovalOptions;
+        PendingToolName = dto.PendingToolName;
+        PendingToolInput = dto.PendingToolInput;
     }
 
     partial void OnStatusChanged(SessionStatus value)
@@ -184,12 +224,12 @@ public partial class SessionViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task ApproveAsync(string option)
+    private async Task ApproveAsync(string behavior)
     {
-        await _connection.ApproveAsync(Id, int.Parse(option));
+        await _connection.ApproveAsync(Id, behavior);
         Status = SessionStatus.Running;
-        ApprovalContext = null;
-        ApprovalOptions = null;
+        PendingToolName = null;
+        PendingToolInput = null;
     }
 
     [RelayCommand]
@@ -202,5 +242,27 @@ public partial class SessionViewModel : ObservableObject
     private async Task DeleteAsync()
     {
         await _connection.DeleteSessionAsync(Id);
+    }
+
+    private static string? FormatToolInput(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try
+        {
+            var doc = JsonDocument.Parse(json);
+            var parts = new List<string>();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                var val = prop.Value.ValueKind == JsonValueKind.String
+                    ? prop.Value.GetString()
+                    : prop.Value.ToString();
+                parts.Add($"{prop.Name}: {val}");
+            }
+            return string.Join("\n", parts);
+        }
+        catch
+        {
+            return json;
+        }
     }
 }

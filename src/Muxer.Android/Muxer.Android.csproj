@@ -13,6 +13,13 @@
     <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
   </PropertyGroup>
   <ItemGroup>
+    <AndroidResource Include="Platforms\Android\Resources\drawable\ic_launcher_foreground.xml" />
+    <AndroidResource Include="Platforms\Android\Resources\drawable\ic_launcher_monochrome.xml" />
+    <AndroidResource Include="Platforms\Android\Resources\values\ic_launcher_background.xml" />
+    <AndroidResource Include="Platforms\Android\Resources\mipmap-anydpi-v26\ic_launcher.xml" />
+    <AndroidResource Include="Platforms\Android\Resources\mipmap-anydpi-v26\ic_launcher_round.xml" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.Maui.Controls" Version="9.0.120" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />

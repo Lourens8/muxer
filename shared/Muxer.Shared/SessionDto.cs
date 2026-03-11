@@ -6,10 +6,10 @@ public record SessionDto(
     string ProjectDir,
     string PsmuxSessionName,
     SessionStatus Status,
-    string? ApprovalContext,
-    string[]? ApprovalOptions,
+    string? PendingToolName,
+    string? PendingToolInput,
     DateTimeOffset StartedAt,
-    DateTimeOffset? ApprovalDetectedAt
+    DateTimeOffset? ApprovalRequestedAt
 );
 
 public enum SessionStatus
@@ -22,12 +22,7 @@ public enum SessionStatus
 public record ApprovalRequestDto(
     string SessionId,
     string ProjectName,
-    string Context,
-    string[] Options,
+    string ToolName,
+    string ToolInput,
     DateTimeOffset DetectedAt
-);
-
-public record ApprovalResponseDto(
-    string SessionId,
-    int OptionNumber
 );

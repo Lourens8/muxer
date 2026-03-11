@@ -15,6 +15,8 @@ public class MuxerForegroundService : Service
     private const string ActionApprove = "com.muxer.ACTION_APPROVE";
     private const string ActionDeny = "com.muxer.ACTION_DENY";
 
+    public static bool IsRunning { get; private set; }
+
     private MuxerConnection? _connection;
     private int _notificationCounter = 100;
 
@@ -23,6 +25,7 @@ public class MuxerForegroundService : Service
     public override void OnCreate()
     {
         base.OnCreate();
+        IsRunning = true;
         CreateChannels();
     }
 
@@ -91,14 +94,15 @@ public class MuxerForegroundService : Service
                 launchIntent, PendingIntentFlags.UpdateCurrent | PendingIntentFlags.Immutable)
             : null;
 
-        var contextPreview = request.Context.Length > 100
-            ? request.Context[..100] + "..."
-            : request.Context;
+        var description = $"{request.ToolName}: {request.ToolInput}";
+        var contextPreview = description.Length > 100
+            ? description[..100] + "..."
+            : description;
 
         var builder = new NotificationCompat.Builder(this, ChannelId)
             .SetContentTitle($"Approval needed: {request.ProjectName}")
             .SetContentText(contextPreview)
-            .SetStyle(new NotificationCompat.BigTextStyle().BigText(request.Context))
+            .SetStyle(new NotificationCompat.BigTextStyle().BigText(description))
             .SetSmallIcon(global::Android.Resource.Drawable.IcDialogAlert)
             .SetPriority(NotificationCompat.PriorityHigh)
             .SetAutoCancel(true)
@@ -127,8 +131,8 @@ public class MuxerForegroundService : Service
         var sessionId = intent.GetStringExtra("sessionId");
         if (sessionId == null || _connection == null) return;
 
-        int option = intent.Action == ActionApprove ? 1 : 3;
-        _ = _connection.ApproveAsync(sessionId, option);
+        var behavior = intent.Action == ActionApprove ? "allow" : "deny";
+        _ = _connection.ApproveAsync(sessionId, behavior);
 
         if (_sessionNotificationMap.TryGetValue(sessionId, out var id))
         {
@@ -159,6 +163,7 @@ public class MuxerForegroundService : Service
 
     public override void OnDestroy()
     {
+        IsRunning = false;
         _ = _connection?.DisposeAsync();
         base.OnDestroy();
     }

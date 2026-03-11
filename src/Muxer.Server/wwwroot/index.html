@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Muxer Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  #status { font-size: 13px; padding: 4px 10px; border-radius: 12px; }
+  #status.connected { background: #238636; }
+  #status.disconnected { background: #da3633; }
+  #status.connecting { background: var(--yellow); color: #000; }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+  .toolbar button, .toolbar select { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .toolbar button:hover { border-color: var(--accent); }
+  .toolbar select { min-width: 200px; }
+
+  .sessions { display: flex; flex-direction: column; gap: 16px; }
+  .session { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .session.approval { border-color: var(--yellow); }
+  .session-header { padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+  .session-header .name { font-weight: 600; font-size: 15px; }
+  .session-header .id { color: var(--muted); font-size: 12px; font-family: monospace; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; text-transform: uppercase; }
+  .badge.running { background: #238636; }
+  .badge.waiting { background: var(--yellow); color: #000; }
+  .badge.stopped { background: var(--red); }
+  .session-actions { margin-left: auto; display: flex; gap: 6px; }
+  .session-actions button { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  .session-actions button:hover { color: var(--text); border-color: var(--accent); }
+  .session-actions button.delete:hover { border-color: var(--red); color: var(--red); }
+  .auto-approve { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+  .auto-approve input { cursor: pointer; accent-color: var(--green); }
+  .auto-approve.active { color: var(--green); }
+
+  .approval-panel { padding: 16px; background: #1c1e08; border-top: 1px solid var(--yellow); }
+  .approval-panel h3 { font-size: 13px; color: var(--yellow); margin-bottom: 8px; font-weight: 600; }
+  .tool-info { margin-bottom: 12px; }
+  .tool-name { font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 4px; }
+  .tool-input { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; color: var(--muted); }
+  .approval-buttons { display: flex; gap: 8px; }
+  .btn { padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; }
+  .btn-allow { background: #238636; color: #fff; }
+  .btn-allow:hover { background: #2ea043; }
+  .btn-deny { background: #da3633; color: #fff; }
+  .btn-deny:hover { background: #f85149; }
+
+  .screen-panel { padding: 0; }
+  .screen-output { background: #000; color: #0f0; font-family: monospace; font-size: 12px; padding: 12px; white-space: pre; overflow-x: auto; max-height: 400px; overflow-y: auto; line-height: 1.4; }
+
+  .empty { text-align: center; padding: 60px 24px; color: var(--muted); }
+  .empty p { margin-bottom: 8px; }
+
+  .toast-container { position: fixed; top: 16px; right: 16px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; }
+  .toast { background: var(--surface); border: 1px solid var(--yellow); border-radius: 8px; padding: 12px 16px; animation: slideIn 0.3s ease; min-width: 300px; }
+  .toast .toast-title { font-weight: 600; font-size: 13px; color: var(--yellow); }
+  .toast .toast-body { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Muxer Dashboard</h1>
+  <span id="status" class="connecting">Connecting...</span>
+</header>
+
+<main>
+  <div class="toolbar">
+    <select id="projectSelect"><option value="">Select project...</option></select>
+    <button onclick="createSession()">+ New Session</button>
+    <button onclick="refresh()">Refresh</button>
+  </div>
+  <div id="sessions" class="sessions"></div>
+</main>
+
+<div id="toasts" class="toast-container"></div>
+
+<audio id="notifSound" preload="auto">
+  <source src="data:audio/wav;base64,UklGRl9vT19teleWQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==" type="audio/wav">
+</audio>
+
+<script>
+const API = '';
+let sessions = {};
+let autoApprove = {}; // sessionId -> true/false
+let connection;
+
+// --- SignalR ---
+
+async function connectSignalR() {
+  setStatus('connecting');
+  connection = new signalR.HubConnectionBuilder()
+    .withUrl(`${API}/hubs/sessions`)
+    .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+    .build();
+
+  connection.on('ApprovalRequired', (req) => {
+    const s = sessions[req.sessionId];
+    if (s) {
+      s.status = 1; // WaitingForApproval
+      s.pendingToolName = req.toolName;
+      s.pendingToolInput = req.toolInput;
+      s.approvalRequestedAt = req.detectedAt;
+      renderSessions();
+    }
+
+    if (autoApprove[req.sessionId]) {
+      showToast(`${req.projectName}`, `Auto-approved: ${req.toolName}`);
+      approve(req.sessionId, 'allow');
+      return;
+    }
+
+    showToast(`${req.projectName}`, `${req.toolName} needs approval`);
+    tryPlaySound();
+  });
+
+  connection.on('ApprovalResolved', (sessionId) => {
+    const s = sessions[sessionId];
+    if (s) {
+      s.status = 0; // Running
+      s.pendingToolName = null;
+      s.pendingToolInput = null;
+      s.approvalRequestedAt = null;
+      renderSessions();
+    }
+  });
+
+  connection.on('SessionCreated', (dto) => {
+    sessions[dto.id] = dto;
+    renderSessions();
+  });
+
+  connection.on('SessionDestroyed', (id) => {
+    delete sessions[id];
+    renderSessions();
+  });
+
+  connection.onreconnecting(() => setStatus('connecting'));
+  connection.onreconnected(() => { setStatus('connected'); refresh(); });
+  connection.onclose(() => setStatus('disconnected'));
+
+  try {
+    await connection.start();
+    setStatus('connected');
+    await refresh();
+  } catch (err) {
+    console.error('SignalR connect failed:', err);
+    setStatus('disconnected');
+    setTimeout(connectSignalR, 5000);
+  }
+}
+
+// --- API ---
+
+async function refresh() {
+  try {
+    const [sessResp, projResp] = await Promise.all([
+      fetch(`${API}/api/sessions`),
+      fetch(`${API}/api/projects`)
+    ]);
+    const sessList = await sessResp.json();
+    const projects = await projResp.json();
+
+    sessions = {};
+    for (const s of sessList) sessions[s.id] = s;
+    renderSessions();
+
+    const select = document.getElementById('projectSelect');
+    select.innerHTML = '<option value="">Select project...</option>';
+    for (const p of projects) {
+      const opt = document.createElement('option');
+      opt.value = p; opt.textContent = p;
+      select.appendChild(opt);
+    }
+  } catch (err) {
+    console.error('Refresh failed:', err);
+  }
+}
+
+async function createSession() {
+  const select = document.getElementById('projectSelect');
+  const project = select.value;
+  if (!project) return;
+  try {
+    const resp = await fetch(`${API}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectDir: project })
+    });
+    const dto = await resp.json();
+    sessions[dto.id] = dto;
+    renderSessions();
+    select.value = '';
+  } catch (err) {
+    console.error('Create failed:', err);
+  }
+}
+
+function toggleAutoApprove(id) {
+  autoApprove[id] = !autoApprove[id];
+  renderSessions();
+}
+
+async function deleteSession(id) {
+  if (!confirm('Delete this session?')) return;
+  try {
+    await fetch(`${API}/api/sessions/${id}`, { method: 'DELETE' });
+    delete sessions[id];
+    renderSessions();
+  } catch (err) {
+    console.error('Delete failed:', err);
+  }
+}
+
+async function approve(id, behavior) {
+  try {
+    await fetch(`${API}/api/sessions/${id}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ behavior })
+    });
+  } catch (err) {
+    console.error('Approve failed:', err);
+  }
+}
+
+async function viewScreen(id) {
+  const panel = document.getElementById(`screen-${id}`);
+  if (panel.style.display === 'block') {
+    panel.style.display = 'none';
+    return;
+  }
+  try {
+    const resp = await fetch(`${API}/api/sessions/${id}/screen`);
+    const text = await resp.text();
+    panel.querySelector('.screen-output').textContent = text || '(empty)';
+    panel.style.display = 'block';
+  } catch (err) {
+    console.error('Screen fetch failed:', err);
+  }
+}
+
+// --- Rendering ---
+
+function statusName(s) { return ['Running', 'Needs Approval', 'Stopped'][s] || 'Unknown'; }
+function statusClass(s) { return ['running', 'waiting', 'stopped'][s] || ''; }
+
+function formatToolInput(jsonStr) {
+  try {
+    const obj = JSON.parse(jsonStr);
+    // Show key fields nicely
+    const parts = [];
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v === 'string') {
+        parts.push(`${k}: ${v}`);
+      } else {
+        parts.push(`${k}: ${JSON.stringify(v, null, 2)}`);
+      }
+    }
+    return parts.join('\n');
+  } catch {
+    return jsonStr;
+  }
+}
+
+function renderSessions() {
+  const container = document.getElementById('sessions');
+  const list = Object.values(sessions);
+
+  if (list.length === 0) {
+    container.innerHTML = '<div class="empty"><p>No active sessions</p><p>Select a project and click + New Session to get started</p></div>';
+    return;
+  }
+
+  // Sort: waiting first, then by start time desc
+  list.sort((a, b) => {
+    if (a.status === 1 && b.status !== 1) return -1;
+    if (b.status === 1 && a.status !== 1) return 1;
+    return new Date(b.startedAt) - new Date(a.startedAt);
+  });
+
+  container.innerHTML = list.map(s => `
+    <div class="session ${s.status === 1 ? 'approval' : ''}">
+      <div class="session-header">
+        <span class="name">${esc(s.projectName)}</span>
+        <span class="id">${esc(s.id)}</span>
+        <span class="badge ${statusClass(s.status)}">${statusName(s.status)}</span>
+        <label class="auto-approve ${autoApprove[s.id] ? 'active' : ''}" onclick="event.stopPropagation()">
+          <input type="checkbox" ${autoApprove[s.id] ? 'checked' : ''} onchange="toggleAutoApprove('${s.id}')">
+          Auto-approve
+        </label>
+        <div class="session-actions">
+          <button onclick="viewScreen('${s.id}')">Screen</button>
+          <button class="delete" onclick="deleteSession('${s.id}')">Delete</button>
+        </div>
+      </div>
+      ${s.status === 1 ? `
+        <div class="approval-panel">
+          <h3>Permission Request</h3>
+          <div class="tool-info">
+            <div class="tool-name">${esc(s.pendingToolName)}</div>
+            <div class="tool-input">${esc(formatToolInput(s.pendingToolInput))}</div>
+          </div>
+          <div class="approval-buttons">
+            <button class="btn btn-allow" onclick="approve('${s.id}', 'allow')">Allow</button>
+            <button class="btn btn-deny" onclick="approve('${s.id}', 'deny')">Deny</button>
+          </div>
+        </div>
+      ` : ''}
+      <div id="screen-${s.id}" class="screen-panel" style="display:none">
+        <div class="screen-output"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function esc(str) {
+  if (!str) return '';
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+// --- Notifications ---
+
+function showToast(title, body) {
+  const container = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<div class="toast-title">${esc(title)}</div><div class="toast-body">${esc(body)}</div>`;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 8000);
+
+  // Browser notification
+  if (Notification.permission === 'granted') {
+    new Notification(title, { body });
+  }
+}
+
+function tryPlaySound() {
+  try { document.getElementById('notifSound').play().catch(() => {}); } catch {}
+}
+
+function setStatus(state) {
+  const el = document.getElementById('status');
+  el.className = state;
+  el.textContent = state === 'connected' ? 'Connected' : state === 'connecting' ? 'Connecting...' : 'Disconnected';
+}
+
+// --- Init ---
+
+if ('Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission();
+}
+
+connectSignalR();
+</script>
+</body>
+</html>

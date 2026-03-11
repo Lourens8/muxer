@@ -12,13 +12,13 @@ public class ManagedSession
     public required string PsmuxSessionName { get; init; }
     public required DateTimeOffset StartedAt { get; init; }
     public SessionStatus Status { get; set; } = SessionStatus.Running;
-    public string? ApprovalContext { get; set; }
-    public string[]? ApprovalOptions { get; set; }
-    public DateTimeOffset? ApprovalDetectedAt { get; set; }
+    public string? PendingToolName { get; set; }
+    public string? PendingToolInput { get; set; }
+    public DateTimeOffset? ApprovalRequestedAt { get; set; }
 
     public SessionDto ToDto() => new(
         Id, ProjectName, ProjectDir, PsmuxSessionName, Status,
-        ApprovalContext, ApprovalOptions, StartedAt, ApprovalDetectedAt
+        PendingToolName, PendingToolInput, StartedAt, ApprovalRequestedAt
     );
 }
 
@@ -27,6 +27,7 @@ public class SessionManager
     private const string ProjectsRoot = @"C:\projects";
 
     private readonly ConcurrentDictionary<string, ManagedSession> _sessions = new();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingApprovals = new();
     private readonly PsmuxClient _psmux;
     private readonly ILogger<SessionManager> _logger;
 
@@ -50,9 +51,36 @@ public class SessionManager
         return s;
     }
 
+    public ManagedSession? FindSessionByCwd(string cwd)
+    {
+        var normalized = Path.GetFullPath(cwd);
+        return _sessions.Values.FirstOrDefault(s =>
+            string.Equals(Path.GetFullPath(s.ProjectDir), normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public TaskCompletionSource<string> RegisterPendingApproval(string sessionId)
+    {
+        // Cancel any existing pending approval for this session
+        if (_pendingApprovals.TryRemove(sessionId, out var existing))
+            existing.TrySetCanceled();
+
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pendingApprovals[sessionId] = tcs;
+        return tcs;
+    }
+
+    public bool ResolvePendingApproval(string sessionId, string behavior)
+    {
+        if (_pendingApprovals.TryRemove(sessionId, out var tcs))
+        {
+            tcs.TrySetResult(behavior);
+            return true;
+        }
+        return false;
+    }
+
     private async Task EnsureAliveAsync(ManagedSession session)
     {
-        // Check psmux session is alive, recreate if not
         if (!await _psmux.HasSessionAsync(session.PsmuxSessionName))
         {
             _logger.LogWarning("psmux session {Name} for {Id} ({Project}) is dead, recreating",
@@ -73,7 +101,6 @@ public class SessionManager
 
     public async Task<ManagedSession> CreateSessionAsync(string projectDir)
     {
-        // Resolve relative names to full path
         if (!Path.IsPathRooted(projectDir))
             projectDir = Path.Combine(ProjectsRoot, projectDir);
 
@@ -84,10 +111,7 @@ public class SessionManager
         var sessionName = $"claude-{projectName}".Replace(" ", "-").ToLowerInvariant();
         var id = Guid.NewGuid().ToString("N")[..8];
 
-        // Kill any existing session with same name
         await _psmux.KillSessionAsync(sessionName);
-
-        // Start psmux session
         await _psmux.NewSessionAsync(sessionName, projectDir, "claude");
 
         var session = new ManagedSession
@@ -109,8 +133,11 @@ public class SessionManager
     {
         if (!_sessions.TryRemove(id, out var session)) return;
 
-        await _psmux.KillSessionAsync(session.PsmuxSessionName);
+        // Cancel any pending approval
+        if (_pendingApprovals.TryRemove(id, out var tcs))
+            tcs.TrySetCanceled();
 
+        await _psmux.KillSessionAsync(session.PsmuxSessionName);
         _logger.LogInformation("Session {Id} destroyed: {Project}", id, session.ProjectName);
     }
 

@@ -6,16 +6,23 @@
              Title="Muxer"
              x:DataType="vm:SessionListViewModel">
 
-    <Grid RowDefinitions="Auto,Auto,*" Padding="16" RowSpacing="12">
+    <Grid RowDefinitions="Auto,Auto,Auto,*" Padding="16" RowSpacing="12">
 
         <!-- Status bar -->
-        <HorizontalStackLayout Spacing="8">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
             <BoxView WidthRequest="12" HeightRequest="12" CornerRadius="6"
+                     VerticalOptions="Center"
                      Color="{Binding IsConnected, Converter={StaticResource BoolToColorConverter}}" />
-            <Label Text="{Binding StatusText}" FontSize="13" TextColor="Gray" />
-            <Button Text="Refresh" Command="{Binding RefreshCommand}"
-                    FontSize="12" Padding="8,2" HeightRequest="30" />
-        </HorizontalStackLayout>
+            <Label Grid.Column="1" Text="{Binding StatusText}" FontSize="12" TextColor="Gray"
+                   VerticalOptions="Center" LineBreakMode="TailTruncation" />
+            <Button Grid.Column="2" Text="Refresh" Command="{Binding RefreshCommand}"
+                    FontSize="11" Padding="8,2" HeightRequest="30" />
+            <Button Grid.Column="3"
+                    Text="{Binding IsPushEnabled, StringFormat='{0:Push: On;;Push: Off}'}"
+                    Command="{Binding TogglePushCommand}"
+                    BackgroundColor="{Binding IsPushEnabled, Converter={StaticResource BoolToColorConverter}}"
+                    TextColor="White" FontSize="11" Padding="8,2" HeightRequest="30" />
+        </Grid>
 
         <!-- New session -->
         <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
@@ -25,13 +32,13 @@
                     BackgroundColor="#4CAF50" TextColor="White" />
         </Grid>
 
-        <!-- Session list + project list -->
-        <ScrollView Grid.Row="2">
-            <VerticalStackLayout Spacing="12">
+        <!-- Active sessions label -->
+        <Label Grid.Row="2" Text="Active Sessions" FontSize="18" FontAttributes="Bold"
+               IsVisible="{Binding Sessions.Count, Converter={StaticResource IntToBoolConverter}}" />
 
-                <!-- Active sessions -->
-                <Label Text="Active Sessions" FontSize="18" FontAttributes="Bold"
-                       IsVisible="{Binding Sessions.Count, Converter={StaticResource IntToBoolConverter}}" />
+        <!-- Session list + project list -->
+        <ScrollView Grid.Row="3">
+            <VerticalStackLayout Spacing="12">
 
                 <CollectionView ItemsSource="{Binding Sessions}">
                     <CollectionView.ItemTemplate>
@@ -49,31 +56,43 @@
                                                FontSize="12" TextColor="Gray" VerticalOptions="Center" />
                                     </Grid>
 
+                                    <!-- Auto-approve toggle -->
+                                    <HorizontalStackLayout Spacing="8">
+                                        <Switch IsToggled="{Binding AutoApprove}"
+                                                OnColor="#4CAF50" ThumbColor="#ccc"
+                                                VerticalOptions="Center" />
+                                        <Label Text="Auto-approve" FontSize="13"
+                                               TextColor="{Binding AutoApprove, Converter={StaticResource BoolToColorConverter}}"
+                                               VerticalOptions="Center" />
+                                    </HorizontalStackLayout>
+
                                     <!-- Approval section -->
-                                    <Frame BackgroundColor="#FFF3E0" Padding="10" CornerRadius="6"
-                                           IsVisible="{Binding NeedsApproval}" BorderColor="#FF9800">
+                                    <Border StrokeThickness="1" Stroke="#FF9800"
+                                            StrokeShape="RoundRectangle 6"
+                                            BackgroundColor="#2a2000" Padding="10"
+                                            IsVisible="{Binding NeedsApproval}">
                                         <VerticalStackLayout Spacing="8">
-                                            <Label Text="{Binding ApprovalContext}" FontSize="12"
-                                                   FontFamily="Consolas" MaxLines="6" />
+                                            <Label Text="Permission Request" FontSize="11"
+                                                   TextColor="#FF9800" FontAttributes="Bold" />
+                                            <Label Text="{Binding PendingToolName}" FontSize="15"
+                                                   FontAttributes="Bold" TextColor="#58a6ff" />
+                                            <Label Text="{Binding FormattedToolInput}" FontSize="12"
+                                                   FontFamily="monospace" TextColor="#aaa"
+                                                   MaxLines="10" LineBreakMode="TailTruncation" />
                                             <HorizontalStackLayout Spacing="8">
-                                                <Button Text="Allow Once"
+                                                <Button Text="Allow"
                                                         Command="{Binding ApproveCommand}"
-                                                        CommandParameter="1"
-                                                        BackgroundColor="#4CAF50" TextColor="White"
-                                                        FontSize="12" Padding="12,6" />
-                                                <Button Text="Allow Always"
-                                                        Command="{Binding ApproveCommand}"
-                                                        CommandParameter="2"
-                                                        BackgroundColor="#2196F3" TextColor="White"
-                                                        FontSize="12" Padding="12,6" />
+                                                        CommandParameter="allow"
+                                                        BackgroundColor="#238636" TextColor="White"
+                                                        FontSize="13" Padding="16,8" FontAttributes="Bold" />
                                                 <Button Text="Deny"
                                                         Command="{Binding ApproveCommand}"
-                                                        CommandParameter="3"
-                                                        BackgroundColor="#F44336" TextColor="White"
-                                                        FontSize="12" Padding="12,6" />
+                                                        CommandParameter="deny"
+                                                        BackgroundColor="#da3633" TextColor="White"
+                                                        FontSize="13" Padding="16,8" FontAttributes="Bold" />
                                             </HorizontalStackLayout>
                                         </VerticalStackLayout>
-                                    </Frame>
+                                    </Border>
 
                                     <!-- Actions -->
                                     <HorizontalStackLayout Spacing="8">
