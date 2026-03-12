@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="psmux.exe" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\shared\Muxer.Shared\Muxer.Shared.csproj" />

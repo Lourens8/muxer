@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using Muxer.Shared;
 
 const string ServerUrl = "http://localhost:5199";
-const string PsmuxPath = @"C:\Users\loure\AppData\Local\Microsoft\WinGet\Packages\marlocarlo.psmux_Microsoft.Winget.Source_8wekyb3d8bbwe\psmux.exe";
+var PsmuxPath = Path.Combine(AppContext.BaseDirectory, "psmux.exe");
 
 using var http = new HttpClient { BaseAddress = new Uri(ServerUrl), Timeout = TimeSpan.FromSeconds(3) };
 
@@ -93,7 +93,7 @@ while (true)
     if (input.StartsWith("s", StringComparison.OrdinalIgnoreCase) &&
         int.TryParse(input[1..], out int si) && si >= 1 && si <= sessions.Length)
     {
-        AttachPsmux(sessions[si - 1].PsmuxSessionName, sessions[si - 1].ProjectName);
+        AttachPsmux(PsmuxPath, sessions[si - 1].PsmuxSessionName, sessions[si - 1].ProjectName);
         continue; // return to menu after detach
     }
 
@@ -154,7 +154,7 @@ while (true)
         // Give psmux a moment to initialize
         await Task.Delay(500);
 
-        AttachPsmux(created.PsmuxSessionName, created.ProjectName);
+        AttachPsmux(PsmuxPath, created.PsmuxSessionName, created.ProjectName);
         // return to menu after detach
     }
     catch (Exception ex)
@@ -167,7 +167,7 @@ while (true)
     }
 }
 
-static void AttachPsmux(string sessionName, string projectName)
+static void AttachPsmux(string psmuxPath, string sessionName, string projectName)
 {
     Console.Title = $"Muxer - {projectName}";
     Console.Clear();
@@ -176,7 +176,7 @@ static void AttachPsmux(string sessionName, string projectName)
     {
         StartInfo = new ProcessStartInfo
         {
-            FileName = PsmuxPath,
+            FileName = psmuxPath,
             Arguments = $"attach -t {sessionName}",
             UseShellExecute = false
         }

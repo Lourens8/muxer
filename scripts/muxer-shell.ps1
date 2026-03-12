@@ -1,4 +1,5 @@
-$PsmuxPath = "C:\Users\loure\AppData\Local\Microsoft\WinGet\Packages\marlocarlo.psmux_Microsoft.Winget.Source_8wekyb3d8bbwe\psmux.exe"
+# Resolve psmux bundled with Muxer.Server
+$PsmuxPath = "C:\projects\muxer\src\Muxer.Server\psmux.exe"
 $ServerUrl = "http://192.168.0.65:5199"
 
 # Clear CLAUDECODE so psmux sessions can run Claude CLI

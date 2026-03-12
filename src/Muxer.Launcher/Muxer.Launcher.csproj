@@ -7,6 +7,9 @@
     <AssemblyName>muxer</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <None Include="..\Muxer.Server\psmux.exe" Link="psmux.exe" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\shared\Muxer.Shared\Muxer.Shared.csproj" />
   </ItemGroup>
 </Project>

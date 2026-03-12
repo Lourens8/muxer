@@ -4,7 +4,7 @@ namespace Muxer.Server.Psmux;
 
 public class PsmuxClient
 {
-    public const string PsmuxPath = @"C:\Users\loure\AppData\Local\Microsoft\WinGet\Packages\marlocarlo.psmux_Microsoft.Winget.Source_8wekyb3d8bbwe\psmux.exe";
+    public static readonly string PsmuxPath = Path.Combine(AppContext.BaseDirectory, "psmux.exe");
 
     private readonly ILogger<PsmuxClient> _logger;
 
