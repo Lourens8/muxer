@@ -2,14 +2,15 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Muxer.Android.ViewModels"
+             xmlns:svc="clr-namespace:Muxer.Android.Services"
              x:Class="Muxer.Android.Views.SessionListPage"
              Title="Muxer"
              x:DataType="vm:SessionListViewModel">
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*" Padding="16" RowSpacing="12">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Padding="16" RowSpacing="12">
 
         <!-- Status bar -->
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
             <BoxView WidthRequest="12" HeightRequest="12" CornerRadius="6"
                      VerticalOptions="Center"
                      Color="{Binding IsConnected, Converter={StaticResource BoolToColorConverter}}" />
@@ -22,10 +23,50 @@
                     Command="{Binding TogglePushCommand}"
                     BackgroundColor="{Binding IsPushEnabled, Converter={StaticResource BoolToColorConverter}}"
                     TextColor="White" FontSize="11" Padding="8,2" HeightRequest="30" />
+            <Button Grid.Column="4" Text="Settings" Command="{Binding ToggleSettingsCommand}"
+                    FontSize="11" Padding="8,2" HeightRequest="30" />
         </Grid>
 
+        <!-- Settings panel (collapsible) -->
+        <Border Grid.Row="1" Stroke="#444" StrokeThickness="1" Padding="12"
+                StrokeShape="RoundRectangle 8" IsVisible="{Binding ShowSettings}">
+            <VerticalStackLayout Spacing="10">
+                <Label Text="Servers" FontSize="16" FontAttributes="Bold" />
+
+                <Label Text="{Binding Source={x:Static svc:ServerSettings.DefaultServer},
+                       StringFormat='Default: {0}'}"
+                       FontSize="12" TextColor="Gray" FontFamily="monospace"
+                       x:DataType="vm:SessionListViewModel" />
+
+                <CollectionView ItemsSource="{Binding ExtraServers}">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <Grid ColumnDefinitions="*,Auto" Padding="0,2">
+                                <Label Text="{Binding .}" FontSize="13" FontFamily="monospace"
+                                       VerticalOptions="Center" />
+                                <Button Grid.Column="1" Text="Remove"
+                                        Command="{Binding Source={RelativeSource AncestorType={x:Type vm:SessionListViewModel}}, Path=RemoveServerCommand}"
+                                        CommandParameter="{Binding .}"
+                                        BackgroundColor="#880000" TextColor="White"
+                                        FontSize="11" Padding="10,4" HeightRequest="30" />
+                            </Grid>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <Entry Placeholder="http://192.168.0.X:5199"
+                           Text="{Binding NewServerUrl}" FontSize="13" />
+                    <Button Grid.Column="1" Text="Add Server"
+                            Command="{Binding AddServerCommand}"
+                            BackgroundColor="#4CAF50" TextColor="White"
+                            FontSize="12" Padding="12,4" />
+                </Grid>
+            </VerticalStackLayout>
+        </Border>
+
         <!-- New session -->
-        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8">
             <Entry Placeholder="Project name or pick below..."
                    Text="{Binding NewProjectName}" />
             <Button Grid.Column="1" Text="Start" Command="{Binding CreateSessionCommand}"
@@ -33,11 +74,11 @@
         </Grid>
 
         <!-- Active sessions label -->
-        <Label Grid.Row="2" Text="Active Sessions" FontSize="18" FontAttributes="Bold"
+        <Label Grid.Row="3" Text="Active Sessions" FontSize="18" FontAttributes="Bold"
                IsVisible="{Binding Sessions.Count, Converter={StaticResource IntToBoolConverter}}" />
 
         <!-- Session list + project list -->
-        <ScrollView Grid.Row="3">
+        <ScrollView Grid.Row="4">
             <VerticalStackLayout Spacing="12">
 
                 <CollectionView ItemsSource="{Binding Sessions}">
@@ -50,8 +91,12 @@
                                     <Grid ColumnDefinitions="Auto,*,Auto">
                                         <BoxView WidthRequest="12" HeightRequest="12" CornerRadius="6"
                                                  Color="{Binding NeedsApproval, Converter={StaticResource ApprovalColorConverter}}" />
-                                        <Label Grid.Column="1" Text="{Binding ProjectName}"
-                                               FontSize="16" FontAttributes="Bold" Margin="8,0,0,0" />
+                                        <VerticalStackLayout Grid.Column="1" Margin="8,0,0,0">
+                                            <Label Text="{Binding ProjectName}"
+                                                   FontSize="16" FontAttributes="Bold" />
+                                            <Label Text="{Binding ServerLabel}" FontSize="11"
+                                                   TextColor="Gray" FontFamily="monospace" />
+                                        </VerticalStackLayout>
                                         <Label Grid.Column="2" Text="{Binding StatusText}"
                                                FontSize="12" TextColor="Gray" VerticalOptions="Center" />
                                     </Grid>
@@ -113,14 +158,16 @@
 
                 <!-- Available projects -->
                 <Label Text="Projects" FontSize="18" FontAttributes="Bold" Margin="0,8,0,0" />
-                <CollectionView ItemsSource="{Binding Projects}">
+                <CollectionView ItemsSource="{Binding AllProjects}">
                     <CollectionView.ItemTemplate>
-                        <DataTemplate x:DataType="x:String">
+                        <DataTemplate x:DataType="vm:ProjectItem">
                             <Border Stroke="#555" StrokeThickness="1" Padding="12"
                                     StrokeShape="RoundRectangle 6" Margin="0,0,0,4">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <Label Text="{Binding .}" FontSize="14" VerticalOptions="Center" />
-                                    <Button Grid.Column="1" Text="Launch"
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                    <Label Text="{Binding ProjectDir}" FontSize="14" VerticalOptions="Center" />
+                                    <Label Grid.Column="1" Text="{Binding ServerLabel}" FontSize="11"
+                                           TextColor="Gray" FontFamily="monospace" VerticalOptions="Center" />
+                                    <Button Grid.Column="2" Text="Launch"
                                             Command="{Binding Source={RelativeSource AncestorType={x:Type vm:SessionListViewModel}}, Path=CreateSessionFromProjectCommand}"
                                             CommandParameter="{Binding .}"
                                             FontSize="12" Padding="10,4" />

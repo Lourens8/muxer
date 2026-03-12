@@ -1,4 +1,3 @@
-using Muxer.Android.Services;
 using Muxer.Android.ViewModels;
 using Muxer.Android.Views;
 
@@ -17,7 +16,6 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
             });
 
-        builder.Services.AddSingleton<MuxerConnection>();
         builder.Services.AddSingleton<SessionListViewModel>();
         builder.Services.AddTransient<SessionListPage>();
 

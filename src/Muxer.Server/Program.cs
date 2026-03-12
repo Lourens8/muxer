@@ -9,11 +9,20 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
 builder.Services.AddSignalR();
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+        policy.SetIsOriginAllowed(_ => true)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials());
+});
 builder.Services.AddSingleton<PsmuxClient>();
 builder.Services.AddSingleton<SessionManager>();
 
 var app = builder.Build();
 
+app.UseCors();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 

@@ -11,7 +11,7 @@ namespace Muxer.Android.ViewModels;
 
 public partial class SessionListViewModel : ObservableObject
 {
-    private readonly MuxerConnection _connection;
+    private readonly List<MuxerConnection> _connections = [];
 
     public ObservableCollection<SessionViewModel> Sessions { get; } = [];
 
@@ -22,27 +22,42 @@ public partial class SessionListViewModel : ObservableObject
     private string _statusText = "Connecting...";
 
     [ObservableProperty]
-    private string[] _projects = [];
-
-    [ObservableProperty]
     private string _newProjectName = "";
 
     [ObservableProperty]
     private bool _isPushEnabled;
 
-    public SessionListViewModel(MuxerConnection connection)
-    {
-        _connection = connection;
-        _isPushEnabled = MuxerForegroundService.IsRunning;
+    // Settings
+    [ObservableProperty]
+    private bool _showSettings;
 
-        _connection.OnConnectionChanged += connected =>
+    [ObservableProperty]
+    private string _newServerUrl = "";
+
+    public ObservableCollection<string> ExtraServers { get; } = [];
+    public ObservableCollection<ProjectItem> AllProjects { get; } = [];
+
+    public SessionListViewModel()
+    {
+        _isPushEnabled = MuxerForegroundService.IsRunning;
+        foreach (var s in ServerSettings.GetExtraServers())
+            ExtraServers.Add(s);
+    }
+
+    private void WireConnection(MuxerConnection connection)
+    {
+        connection.OnConnectionChanged += connected =>
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                IsConnected = connected;
-                StatusText = connected ? $"Connected to {MuxerConnection.ServerUrl}" : "Disconnected";
+                IsConnected = _connections.Any(c => c.IsConnected);
+                var names = _connections.Where(c => c.IsConnected)
+                    .Select(c => new Uri(c.ServerUrl).Host);
+                StatusText = IsConnected
+                    ? $"Connected to {string.Join(", ", names)}"
+                    : "Disconnected";
             });
 
-        _connection.OnApprovalRequired += req =>
+        connection.OnApprovalRequired += req =>
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 var session = Sessions.FirstOrDefault(s => s.Id == req.SessionId);
@@ -53,13 +68,11 @@ public partial class SessionListViewModel : ObservableObject
                     session.PendingToolInput = req.ToolInput;
 
                     if (session.AutoApprove)
-                    {
                         _ = session.ApproveCommand.ExecuteAsync("allow");
-                    }
                 }
             });
 
-        _connection.OnApprovalResolved += id =>
+        connection.OnApprovalResolved += id =>
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 var session = Sessions.FirstOrDefault(s => s.Id == id);
@@ -71,14 +84,14 @@ public partial class SessionListViewModel : ObservableObject
                 }
             });
 
-        _connection.OnSessionCreated += dto =>
+        connection.OnSessionCreated += dto =>
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 if (Sessions.All(s => s.Id != dto.Id))
-                    Sessions.Add(new SessionViewModel(dto, _connection));
+                    Sessions.Add(new SessionViewModel(dto, connection));
             });
 
-        _connection.OnSessionDestroyed += id =>
+        connection.OnSessionDestroyed += id =>
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 var s = Sessions.FirstOrDefault(s => s.Id == id);
@@ -113,7 +126,27 @@ public partial class SessionListViewModel : ObservableObject
         try
         {
             StatusText = "Connecting...";
-            await _connection.ConnectAsync();
+
+            foreach (var c in _connections)
+                await c.DisposeAsync();
+            _connections.Clear();
+
+            foreach (var url in ServerSettings.GetAllServers())
+            {
+                var conn = new MuxerConnection(url);
+                WireConnection(conn);
+                _connections.Add(conn);
+            }
+
+            // Connect all, don't fail if one server is unreachable
+            await Task.WhenAll(_connections.Select(c =>
+                c.ConnectAsync().ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                        System.Diagnostics.Debug.WriteLine(
+                            $"Connect to {c.ServerUrl} failed: {t.Exception?.InnerException?.Message}");
+                })));
+
             await RefreshAsync();
         }
         catch (Exception ex)
@@ -127,12 +160,24 @@ public partial class SessionListViewModel : ObservableObject
     {
         try
         {
-            var sessions = await _connection.GetSessionsAsync();
             Sessions.Clear();
-            foreach (var dto in sessions)
-                Sessions.Add(new SessionViewModel(dto, _connection));
+            AllProjects.Clear();
 
-            Projects = await _connection.GetProjectsAsync();
+            foreach (var conn in _connections)
+            {
+                try
+                {
+                    var sessions = await conn.GetSessionsAsync();
+                    foreach (var dto in sessions)
+                        Sessions.Add(new SessionViewModel(dto, conn));
+
+                    var projects = await conn.GetProjectsAsync();
+                    var label = new Uri(conn.ServerUrl).Host;
+                    foreach (var p in projects)
+                        AllProjects.Add(new ProjectItem(conn, label, p));
+                }
+                catch { /* individual server failure is ok */ }
+            }
         }
         catch (Exception ex)
         {
@@ -145,11 +190,14 @@ public partial class SessionListViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(NewProjectName)) return;
 
+        var conn = _connections.FirstOrDefault(c => c.IsConnected);
+        if (conn == null) return;
+
         try
         {
-            var dto = await _connection.CreateSessionAsync(NewProjectName);
+            var dto = await conn.CreateSessionAsync(NewProjectName);
             if (dto != null && Sessions.All(s => s.Id != dto.Id))
-                Sessions.Add(new SessionViewModel(dto, _connection));
+                Sessions.Add(new SessionViewModel(dto, conn));
             NewProjectName = "";
         }
         catch (Exception ex)
@@ -159,20 +207,48 @@ public partial class SessionListViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task CreateSessionFromProjectAsync(string projectName)
+    private async Task CreateSessionFromProjectAsync(ProjectItem item)
     {
         try
         {
-            var dto = await _connection.CreateSessionAsync(projectName);
+            var dto = await item.Connection.CreateSessionAsync(item.ProjectDir);
             if (dto != null && Sessions.All(s => s.Id != dto.Id))
-                Sessions.Add(new SessionViewModel(dto, _connection));
+                Sessions.Add(new SessionViewModel(dto, item.Connection));
         }
         catch (Exception ex)
         {
             StatusText = $"Error: {ex.Message}";
         }
     }
+
+    [RelayCommand]
+    private void ToggleSettings() => ShowSettings = !ShowSettings;
+
+    [RelayCommand]
+    private async Task AddServerAsync()
+    {
+        var url = NewServerUrl?.Trim();
+        if (string.IsNullOrEmpty(url)) return;
+        if (!url.StartsWith("http")) url = "http://" + url;
+        url = url.TrimEnd('/');
+        if (ExtraServers.Contains(url)) return;
+
+        ExtraServers.Add(url);
+        ServerSettings.SaveExtraServers([.. ExtraServers]);
+        NewServerUrl = "";
+        await ConnectAsync();
+    }
+
+    [RelayCommand]
+    private async Task RemoveServerAsync(string url)
+    {
+        ExtraServers.Remove(url);
+        ServerSettings.SaveExtraServers([.. ExtraServers]);
+        await ConnectAsync();
+    }
 }
+
+public record ProjectItem(MuxerConnection Connection, string ServerLabel, string ProjectDir);
 
 public partial class SessionViewModel : ObservableObject
 {
@@ -180,6 +256,7 @@ public partial class SessionViewModel : ObservableObject
 
     public string Id { get; }
     public string ProjectName { get; }
+    public string ServerLabel { get; }
 
     [ObservableProperty]
     private SessionStatus _status;
@@ -215,6 +292,7 @@ public partial class SessionViewModel : ObservableObject
         Status = dto.Status;
         PendingToolName = dto.PendingToolName;
         PendingToolInput = dto.PendingToolInput;
+        ServerLabel = new Uri(connection.ServerUrl).Host;
     }
 
     partial void OnStatusChanged(SessionStatus value)
@@ -235,7 +313,8 @@ public partial class SessionViewModel : ObservableObject
     [RelayCommand]
     private async Task ConnectAsync()
     {
-        await Launcher.OpenAsync(new Uri("ssh://loure@192.168.0.65"));
+        var host = new Uri(_connection.ServerUrl).Host;
+        await Launcher.OpenAsync(new Uri($"ssh://loure@{host}"));
     }
 
     [RelayCommand]

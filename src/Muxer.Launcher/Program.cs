@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using System.Runtime.InteropServices;
 using Muxer.Shared;
 
-const string ServerUrl = "http://192.168.0.65:5199";
+const string ServerUrl = "http://localhost:5199";
 const string PsmuxPath = @"C:\Users\loure\AppData\Local\Microsoft\WinGet\Packages\marlocarlo.psmux_Microsoft.Winget.Source_8wekyb3d8bbwe\psmux.exe";
 
 using var http = new HttpClient { BaseAddress = new Uri(ServerUrl), Timeout = TimeSpan.FromSeconds(3) };

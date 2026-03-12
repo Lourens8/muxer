@@ -17,7 +17,8 @@ public class MuxerForegroundService : Service
 
     public static bool IsRunning { get; private set; }
 
-    private MuxerConnection? _connection;
+    private readonly List<MuxerConnection> _connections = [];
+    private readonly Dictionary<string, MuxerConnection> _sessionConnections = new();
     private int _notificationCounter = 100;
 
     public override IBinder? OnBind(Intent? intent) => null;
@@ -55,17 +56,25 @@ public class MuxerForegroundService : Service
 
     private async Task StartMonitoringAsync()
     {
-        _connection = new MuxerConnection();
-        _connection.OnApprovalRequired += ShowApprovalNotification;
-        _connection.OnApprovalResolved += DismissApprovalNotification;
+        foreach (var url in ServerSettings.GetAllServers())
+        {
+            var conn = new MuxerConnection(url);
+            conn.OnApprovalRequired += req =>
+            {
+                _sessionConnections[req.SessionId] = conn;
+                ShowApprovalNotification(req);
+            };
+            conn.OnApprovalResolved += DismissApprovalNotification;
+            _connections.Add(conn);
 
-        try
-        {
-            await _connection.ConnectAsync();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Connection failed: {ex.Message}");
+            try
+            {
+                await conn.ConnectAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Connection to {url} failed: {ex.Message}");
+            }
         }
     }
 
@@ -129,10 +138,12 @@ public class MuxerForegroundService : Service
     private void HandleApprovalAction(Intent intent)
     {
         var sessionId = intent.GetStringExtra("sessionId");
-        if (sessionId == null || _connection == null) return;
+        if (sessionId == null) return;
 
         var behavior = intent.Action == ActionApprove ? "allow" : "deny";
-        _ = _connection.ApproveAsync(sessionId, behavior);
+
+        if (_sessionConnections.TryGetValue(sessionId, out var conn))
+            _ = conn.ApproveAsync(sessionId, behavior);
 
         if (_sessionNotificationMap.TryGetValue(sessionId, out var id))
         {
@@ -164,7 +175,10 @@ public class MuxerForegroundService : Service
     public override void OnDestroy()
     {
         IsRunning = false;
-        _ = _connection?.DisposeAsync();
+        foreach (var conn in _connections)
+            _ = conn.DisposeAsync();
+        _connections.Clear();
+        _sessionConnections.Clear();
         base.OnDestroy();
     }
 }

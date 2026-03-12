@@ -6,9 +6,9 @@ namespace Muxer.Android.Services;
 
 public class MuxerConnection : IAsyncDisposable
 {
-    public const string ServerUrl = "http://192.168.0.65:5199";
+    public string ServerUrl { get; }
 
-    private readonly HttpClient _http = new() { BaseAddress = new Uri(ServerUrl) };
+    private readonly HttpClient _http;
     private HubConnection? _hub;
 
     public event Action<ApprovalRequestDto>? OnApprovalRequired;
@@ -18,6 +18,12 @@ public class MuxerConnection : IAsyncDisposable
     public event Action<bool>? OnConnectionChanged;
 
     public bool IsConnected => _hub?.State == HubConnectionState.Connected;
+
+    public MuxerConnection(string serverUrl)
+    {
+        ServerUrl = serverUrl;
+        _http = new HttpClient { BaseAddress = new Uri(serverUrl) };
+    }
 
     public async Task ConnectAsync()
     {
