@@ -9,6 +9,9 @@
     <None Update="psmux.exe" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.*" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\shared\Muxer.Shared\Muxer.Shared.csproj" />
   </ItemGroup>
 </Project>

@@ -11,14 +11,17 @@ public class ManagedSession
     public required string ProjectDir { get; init; }
     public required string PsmuxSessionName { get; init; }
     public required DateTimeOffset StartedAt { get; init; }
+    public bool IsAdHoc { get; init; }
+    public string? SourceServer { get; init; }
     public SessionStatus Status { get; set; } = SessionStatus.Running;
     public string? PendingToolName { get; set; }
     public string? PendingToolInput { get; set; }
     public DateTimeOffset? ApprovalRequestedAt { get; set; }
+    public DateTimeOffset LastActivityAt { get; set; } = DateTimeOffset.UtcNow;
 
     public SessionDto ToDto() => new(
         Id, ProjectName, ProjectDir, PsmuxSessionName, Status,
-        PendingToolName, PendingToolInput, StartedAt, ApprovalRequestedAt
+        PendingToolName, PendingToolInput, StartedAt, ApprovalRequestedAt, IsAdHoc
     );
 }
 
@@ -58,6 +61,84 @@ public class SessionManager
             string.Equals(Path.GetFullPath(s.ProjectDir), normalized, StringComparison.OrdinalIgnoreCase));
     }
 
+    public ManagedSession FindOrCreateAdHocSession(string cwd)
+    {
+        var normalized = Path.GetFullPath(cwd);
+
+        // Reuse existing ad-hoc session for same directory
+        var existing = _sessions.Values.FirstOrDefault(s =>
+            s.IsAdHoc && string.Equals(Path.GetFullPath(s.ProjectDir), normalized, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            existing.LastActivityAt = DateTimeOffset.UtcNow;
+            return existing;
+        }
+
+        var projectName = new DirectoryInfo(normalized).Name;
+        var id = Guid.NewGuid().ToString("N")[..8];
+
+        var session = new ManagedSession
+        {
+            Id = id,
+            ProjectName = projectName,
+            ProjectDir = normalized,
+            PsmuxSessionName = "",
+            IsAdHoc = true,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+
+        _sessions[id] = session;
+        _logger.LogInformation("Ad-hoc session {Id} created for {Dir}", id, normalized);
+        return session;
+    }
+
+    public ManagedSession FindOrCreateRelaySession(string serverName, string projectName, string projectDir)
+    {
+        var existing = _sessions.Values.FirstOrDefault(s =>
+            s.IsAdHoc &&
+            string.Equals(s.SourceServer, serverName, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(s.ProjectDir, projectDir, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            existing.LastActivityAt = DateTimeOffset.UtcNow;
+            return existing;
+        }
+
+        var id = Guid.NewGuid().ToString("N")[..8];
+        var session = new ManagedSession
+        {
+            Id = id,
+            ProjectName = $"{projectName} ({serverName})",
+            ProjectDir = projectDir,
+            PsmuxSessionName = "",
+            IsAdHoc = true,
+            SourceServer = serverName,
+            StartedAt = DateTimeOffset.UtcNow
+        };
+
+        _sessions[id] = session;
+        _logger.LogInformation("Relay session {Id} created for {Project} on {Server}", id, projectName, serverName);
+        return session;
+    }
+
+    public void CleanupStaleAdHocSessions(TimeSpan maxIdle)
+    {
+        var cutoff = DateTimeOffset.UtcNow - maxIdle;
+        foreach (var (id, session) in _sessions)
+        {
+            if (session.IsAdHoc && session.Status != SessionStatus.WaitingForApproval
+                && session.LastActivityAt < cutoff)
+            {
+                if (_sessions.TryRemove(id, out _))
+                {
+                    if (_pendingApprovals.TryRemove(id, out var tcs))
+                        tcs.TrySetCanceled();
+                    _logger.LogInformation("Cleaned up stale ad-hoc session {Id} ({Project})", id, session.ProjectName);
+                }
+            }
+        }
+    }
+
     public TaskCompletionSource<string> RegisterPendingApproval(string sessionId)
     {
         // Cancel any existing pending approval for this session
@@ -81,6 +162,8 @@ public class SessionManager
 
     private async Task EnsureAliveAsync(ManagedSession session)
     {
+        if (session.IsAdHoc) return;
+
         if (!await _psmux.HasSessionAsync(session.PsmuxSessionName))
         {
             _logger.LogWarning("psmux session {Name} for {Id} ({Project}) is dead, recreating",
@@ -137,7 +220,9 @@ public class SessionManager
         if (_pendingApprovals.TryRemove(id, out var tcs))
             tcs.TrySetCanceled();
 
-        await _psmux.KillSessionAsync(session.PsmuxSessionName);
+        if (!session.IsAdHoc)
+            await _psmux.KillSessionAsync(session.PsmuxSessionName);
+
         _logger.LogInformation("Session {Id} destroyed: {Project}", id, session.ProjectName);
     }
 

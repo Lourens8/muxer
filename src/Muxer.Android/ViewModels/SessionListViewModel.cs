@@ -257,6 +257,7 @@ public partial class SessionViewModel : ObservableObject
     public string Id { get; }
     public string ProjectName { get; }
     public string ServerLabel { get; }
+    public bool IsAdHoc { get; }
 
     [ObservableProperty]
     private SessionStatus _status;
@@ -289,6 +290,7 @@ public partial class SessionViewModel : ObservableObject
         _connection = connection;
         Id = dto.Id;
         ProjectName = dto.ProjectName;
+        IsAdHoc = dto.IsAdHoc;
         Status = dto.Status;
         PendingToolName = dto.PendingToolName;
         PendingToolInput = dto.PendingToolInput;

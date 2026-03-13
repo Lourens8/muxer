@@ -10,6 +10,7 @@ public interface ISessionClient
     Task SessionCreated(SessionDto session);
     Task SessionDestroyed(string sessionId);
     Task SessionStatusChanged(SessionDto session);
+    Task RelayDecision(string sessionId, string behavior);
 }
 
 public class SessionHub : Hub<ISessionClient>

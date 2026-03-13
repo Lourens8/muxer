@@ -57,6 +57,7 @@
   .badge.running { background: #238636; }
   .badge.waiting { background: var(--yellow); color: #000; }
   .badge.stopped { background: var(--red); }
+  .badge.adhoc { background: var(--accent); color: #000; }
   .session-actions { margin-left: auto; display: flex; gap: 6px; }
   .session-actions button { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
   .session-actions button:hover { color: var(--text); border-color: var(--accent); }
@@ -466,14 +467,15 @@ function renderSessions() {
         <span class="name">${esc(s.projectName)}</span>
         ${multi ? `<span class="server-tag">${esc(serverLabel(s._server))}</span>` : ''}
         <span class="id">${esc(s.id)}</span>
+        ${s.isAdHoc ? '<span class="badge adhoc">Ad-hoc</span>' : ''}
         <span class="badge ${statusClass(s.status)}">${statusName(s.status)}</span>
         <label class="auto-approve ${autoApprove[s.id] ? 'active' : ''}" onclick="event.stopPropagation()">
           <input type="checkbox" ${autoApprove[s.id] ? 'checked' : ''} onchange="toggleAutoApprove('${s.id}')">
           Auto-approve
         </label>
         <div class="session-actions">
-          <button onclick="viewScreen('${s.id}')">Screen</button>
-          <button class="delete" onclick="deleteSession('${s.id}')">Delete</button>
+          ${s.isAdHoc ? '' : `<button onclick="viewScreen('${s.id}')">Screen</button>`}
+          ${s.isAdHoc ? '' : `<button class="delete" onclick="deleteSession('${s.id}')">Delete</button>`}
         </div>
       </div>
       ${s.status === 1 ? `

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Muxer.Server.Api;
 using Muxer.Server.Psmux;
+using Muxer.Server.Relay;
 using Muxer.Server.Sessions;
 using Muxer.Shared;
 
@@ -19,6 +20,14 @@ builder.Services.AddCors(options =>
 });
 builder.Services.AddSingleton<PsmuxClient>();
 builder.Services.AddSingleton<SessionManager>();
+
+// Relay: if configured, this server forwards approvals to a primary server
+var relayUrl = builder.Configuration["Muxer:RelayUrl"];
+if (!string.IsNullOrEmpty(relayUrl))
+{
+    builder.Services.AddSingleton(sp =>
+        new RelayClient(relayUrl, sp.GetRequiredService<ILogger<RelayClient>>()));
+}
 
 var app = builder.Build();
 
@@ -59,6 +68,7 @@ app.MapGet("/api/sessions/{id}/screen", async (string id, SessionManager sm, Psm
 {
     var session = await sm.GetSessionAsync(id);
     if (session is null) return Results.NotFound();
+    if (session.IsAdHoc) return Results.Text("(ad-hoc session — no terminal attached)");
     var output = await psmux.CapturePaneAsync(session.PsmuxSessionName);
     return Results.Text(output);
 });
@@ -66,13 +76,28 @@ app.MapGet("/api/sessions/{id}/screen", async (string id, SessionManager sm, Psm
 // --- Approval via hooks ---
 
 app.MapPost("/api/sessions/{id}/approve", async (string id, ApproveRequest req,
-    SessionManager sm) =>
+    SessionManager sm, IHubContext<SessionHub, ISessionClient> hub) =>
 {
     var session = await sm.GetSessionAsync(id);
     if (session is null) return Results.NotFound();
-
-    if (!sm.ResolvePendingApproval(id, req.Behavior))
+    if (session.Status != SessionStatus.WaitingForApproval)
         return Results.BadRequest("No pending approval for this session");
+
+    // Resolve local TCS if present (hook-based flow handles its own cleanup)
+    var resolvedLocally = sm.ResolvePendingApproval(id, req.Behavior);
+
+    // Broadcast for relay clients listening on SignalR
+    await hub.Clients.All.RelayDecision(id, req.Behavior);
+
+    // For relay sessions (no local TCS), clean up state directly
+    if (!resolvedLocally)
+    {
+        session.Status = SessionStatus.Running;
+        session.PendingToolName = null;
+        session.PendingToolInput = null;
+        session.ApprovalRequestedAt = null;
+        await hub.Clients.All.ApprovalResolved(id);
+    }
 
     return Results.Ok();
 });
@@ -103,12 +128,64 @@ app.MapPost("/api/hooks/permission-request", async (HttpContext ctx, SessionMana
         return Results.Json(new { });
     }
 
-    // Find the matching Muxer session by working directory
+    // If relay is configured, forward all approvals to the primary server
+    var relay = ctx.RequestServices.GetService<RelayClient>();
+    if (relay is not null)
+    {
+        var localSession = sm.FindSessionByCwd(cwd);
+        var projectName = localSession?.ProjectName ?? new DirectoryInfo(cwd).Name;
+
+        if (localSession is not null)
+        {
+            localSession.Status = SessionStatus.WaitingForApproval;
+            localSession.PendingToolName = toolName;
+            localSession.PendingToolInput = toolInput;
+            localSession.ApprovalRequestedAt = DateTimeOffset.UtcNow;
+        }
+
+        string relayBehavior;
+        try
+        {
+            relayBehavior = await relay.ForwardApprovalAsync(projectName, cwd, toolName, toolInput, ctx.RequestAborted);
+        }
+        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
+        {
+            logger.LogWarning("Relay: Timed out or cancelled for {Tool} in {Cwd}", toolName, cwd);
+            if (localSession is not null)
+            {
+                localSession.Status = SessionStatus.Running;
+                localSession.PendingToolName = null;
+                localSession.PendingToolInput = null;
+                localSession.ApprovalRequestedAt = null;
+            }
+            return Results.Json(new { });
+        }
+
+        if (localSession is not null)
+        {
+            localSession.Status = SessionStatus.Running;
+            localSession.PendingToolName = null;
+            localSession.PendingToolInput = null;
+            localSession.ApprovalRequestedAt = null;
+        }
+
+        logger.LogWarning("Relay: Returning {Behavior} for {Tool} in {Cwd}", relayBehavior, toolName, cwd);
+        return Results.Json(new
+        {
+            hookSpecificOutput = new
+            {
+                hookEventName = "PermissionRequest",
+                decision = new { behavior = relayBehavior }
+            }
+        });
+    }
+
+    // Find the matching Muxer session by working directory, or create an ad-hoc one
     var session = sm.FindSessionByCwd(cwd);
     if (session is null)
     {
-        logger.LogWarning("Hook: No session found for cwd {Cwd}, passing through", cwd);
-        return Results.Json(new { });
+        session = sm.FindOrCreateAdHocSession(cwd);
+        await hub.Clients.All.SessionCreated(session.ToDto());
     }
 
     // Update session state
@@ -165,15 +242,48 @@ app.MapPost("/api/hooks/permission-request", async (HttpContext ctx, SessionMana
     });
 });
 
+// --- Relay: incoming from remote servers ---
+
+app.MapPost("/api/relay/approval-request", async (RelayApprovalRequest req, SessionManager sm,
+    IHubContext<SessionHub, ISessionClient> hub, ILogger<Program> logger) =>
+{
+    logger.LogWarning("Relay: Incoming from {Server} — {Tool} in {Project}",
+        req.ServerName, req.ToolName, req.ProjectName);
+
+    var session = sm.FindOrCreateRelaySession(req.ServerName, req.ProjectName, req.ProjectDir);
+
+    session.Status = SessionStatus.WaitingForApproval;
+    session.PendingToolName = req.ToolName;
+    session.PendingToolInput = req.ToolInput;
+    session.ApprovalRequestedAt = DateTimeOffset.UtcNow;
+
+    await hub.Clients.All.SessionCreated(session.ToDto());
+    await hub.Clients.All.ApprovalRequired(new ApprovalRequestDto(
+        session.Id, session.ProjectName, req.ToolName, req.ToolInput, session.ApprovalRequestedAt.Value));
+
+    return Results.Json(new { sessionId = session.Id });
+});
+
 app.MapHub<SessionHub>("/hubs/sessions");
 
 // --- Lifecycle ---
 
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 var sessionManager = app.Services.GetRequiredService<SessionManager>();
+var relayClient = app.Services.GetService<RelayClient>();
+
+// Connect relay client to primary if configured
+if (relayClient is not null)
+    await relayClient.ConnectAsync();
+
+// Periodically clean up stale ad-hoc sessions (no activity for 30 minutes)
+var cleanupTimer = new Timer(_ => sessionManager.CleanupStaleAdHocSessions(TimeSpan.FromMinutes(30)),
+    null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
 
 lifetime.ApplicationStopping.Register(() =>
 {
+    cleanupTimer.Dispose();
+    relayClient?.DisposeAsync().AsTask().GetAwaiter().GetResult();
     sessionManager.DestroyAllAsync().GetAwaiter().GetResult();
 });
 
@@ -181,3 +291,4 @@ app.Run("http://0.0.0.0:5199");
 
 record CreateSessionRequest(string ProjectDir);
 record ApproveRequest(string Behavior);
+record RelayApprovalRequest(string ServerName, string ProjectName, string ProjectDir, string ToolName, string ToolInput);

@@ -9,7 +9,8 @@ public record SessionDto(
     string? PendingToolName,
     string? PendingToolInput,
     DateTimeOffset StartedAt,
-    DateTimeOffset? ApprovalRequestedAt
+    DateTimeOffset? ApprovalRequestedAt,
+    bool IsAdHoc = false
 );
 
 public enum SessionStatus
